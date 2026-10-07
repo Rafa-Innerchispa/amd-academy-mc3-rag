@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amd-academy-mc3-rag"
+version = "0.1.0"
+description = "Grounded mixed-filetype RAG baseline for AMD AI Academy Mini Challenge 3"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
