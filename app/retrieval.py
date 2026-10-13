@@ -16,7 +16,7 @@ PART_RE = re.compile(r"\b[A-Z]{2,}[A-Z0-9]*(?:-[A-Z0-9]+){2,}\b")
 ERROR_RE = re.compile(r"\bE\d{3,6}\b", re.I)
 REVISION_RE = re.compile(r"\bREV(?:ISION)?[-_ ]?[A-Z0-9][A-Z0-9._-]*\b", re.I)
 PIN_RE = re.compile(r"\b[A-Z]{1,3}\d{1,3}\b")
-NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])[-+]?\d+(?:\.\d+)?(?![A-Za-z0-9])")
+NUMBER_RE = re.compile(r"(?<![A-Za-z0-9_-])[-+]?\d+(?:\.\d+)?(?![A-Za-z0-9_-])")
 
 
 def tokenize(text: str) -> list[str]:
