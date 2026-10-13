@@ -2,18 +2,25 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import traceback
 from pathlib import Path
 
 from model import ResidentVLM
 from parsers import build_index, chunk_text
-from retrieval import rank
+from retrieval import citations_for_answer, rank
 
 SOCKET_PATH = os.getenv("MC3_SOCKET", "/tmp/mc3.sock")
 INDEX_PATH = Path(os.getenv("MC3_INDEX_PATH", "/tmp/mc3_index.json"))
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}
 OBSOLETE_MARKERS = ("withdrawn", "superseded", "obsolete", "deprecated")
+STATUS_RE = re.compile(
+    r"(?im)^\s*(?:document\s+)?status\s*[:=-]\s*"
+    r"(?:withdrawn|superseded|obsolete|deprecated)\b|"
+    r"^\s*(?:this\s+document\s+is\s+)?"
+    r"(?:withdrawn|superseded|obsolete|deprecated)\b"
+)
 
 MODEL = ResidentVLM()
 INDEX: dict = {"corpus": "", "documents": []}
@@ -22,6 +29,12 @@ INDEX: dict = {"corpus": "", "documents": []}
 def _is_obsolete(path: Path) -> bool:
     lower = path.name.lower()
     return any(marker in lower for marker in OBSOLETE_MARKERS)
+
+
+def _text_marks_obsolete(text: str) -> bool:
+    # Status declarations normally live near the top. Limiting the scan avoids
+    # treating a current manual that merely mentions a deprecated API as stale.
+    return bool(STATUS_RE.search((text or "")[:1200]))
 
 
 def _index_images(corpus: Path, index: dict) -> None:
@@ -35,7 +48,7 @@ def _index_images(corpus: Path, index: dict) -> None:
             text = MODEL.transcribe_image(str(path))
         except Exception:
             continue
-        if not text.strip():
+        if not text.strip() or _text_marks_obsolete(text):
             continue
         rel = path.relative_to(corpus).as_posix()
         for chunk_id, chunk in enumerate(chunk_text(text)):
@@ -50,10 +63,20 @@ def _index_images(corpus: Path, index: dict) -> None:
 def build_full_index(corpus_path: str) -> dict:
     corpus = Path(corpus_path).resolve()
     index = build_index(str(corpus))
+
+    # Filter both stale filenames and explicit status declarations inside
+    # documents. The latter matters when revisions have neutral filenames.
+    stale_sources = {
+        item["source"]
+        for item in index.get("documents", [])
+        if _is_obsolete(Path(item["source"])) or _text_marks_obsolete(item["text"])
+    }
     index["documents"] = [
-        item for item in index.get("documents", [])
-        if not _is_obsolete(Path(item["source"]))
+        item
+        for item in index.get("documents", [])
+        if item["source"] not in stale_sources
     ]
+
     _index_images(corpus, index)
     INDEX_PATH.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
     return index
@@ -68,35 +91,25 @@ def load_index() -> dict:
         return {"corpus": "", "documents": []}
 
 
-def _normalize(value: str) -> str:
-    return "".join(ch for ch in value.upper() if ch not in " \t\r\n-.·_")
-
-
-def _answer_is_supported(answer: str, results: list[dict]) -> bool:
-    needle = _normalize(answer)
-    if not needle:
-        return False
-    return any(needle in _normalize(item["text"]) for item in results)
-
-
-def _clean_citations(citations: list[str], results: list[dict]) -> list[str]:
-    allowed = {item["source"] for item in results}
-    return list(dict.fromkeys(path for path in citations if path in allowed))
-
-
 def answer_query(question: str) -> dict:
     results = rank(INDEX.get("documents", []), question, limit=10)
     if not results:
         return {"answer": "", "citations": [], "confidence": 0.0}
+
     raw = MODEL.answer(question, results)
     answer = str(raw.get("answer") or "").strip()
-    citations = _clean_citations(raw.get("citations") or [], results)
-    if not answer or not citations or not _answer_is_supported(answer, results):
+
+    # Citation scoring in MC3 is exact-set scoring. Do not trust the model to
+    # decide the evidence set. Derive it from retrieval provenance and require
+    # the final value to be visibly supported in the selected corpus evidence.
+    citations = citations_for_answer(results, answer)
+    if not answer or not citations:
         return {"answer": "", "citations": [], "confidence": 0.0}
+
     return {
         "answer": answer,
         "citations": citations,
-        "confidence": min(0.98, 0.70 + 0.04 * len(citations)),
+        "confidence": min(0.98, 0.78 + 0.04 * len(citations)),
     }
 
 
@@ -156,7 +169,9 @@ def serve() -> None:
                         "message": str(exc),
                         "trace": traceback.format_exc(limit=2),
                     }
-                conn.sendall((json.dumps(response, ensure_ascii=False) + "\n").encode("utf-8"))
+                conn.sendall(
+                    (json.dumps(response, ensure_ascii=False) + "\n").encode("utf-8")
+                )
 
 
 if __name__ == "__main__":
