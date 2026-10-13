@@ -13,7 +13,7 @@ APP = ROOT / "app" / "app.py"
 sys.path.insert(0, str(ROOT / "app"))
 
 from parsers import build_index
-from retrieval import rank
+from retrieval import citations_for_answer, rank
 
 
 def test_parsers_and_retrieval(tmp_path):
@@ -28,6 +28,64 @@ def test_parsers_and_retrieval(tmp_path):
     assert results
     assert results[0]["source"] == "spec.txt"
     assert "94" in results[0]["text"]
+
+
+def test_multihop_scans_zero_overlap_documents():
+    index = [
+        {
+            "source": "logs/device.log",
+            "chunk_id": 0,
+            "text": "Incident during boot. Failure code E7731 observed.",
+        },
+        {
+            "source": "releases/fixes.csv",
+            "chunk_id": 0,
+            "text": "E7731 | 4.3.2",
+        },
+        {
+            "source": "notes/unrelated.txt",
+            "chunk_id": 0,
+            "text": "incident review meeting notes",
+        },
+    ]
+
+    results = rank(index, "Which firmware fixed the boot incident?", limit=4)
+    sources = [item["source"] for item in results]
+    assert "logs/device.log" in sources
+    assert "releases/fixes.csv" in sources
+
+    answer_hop = next(
+        item for item in results if item["source"] == "releases/fixes.csv"
+    )
+    assert answer_hop["retrieval_kind"] == "hop"
+    assert answer_hop["via_identifier"] == "e7731"
+    assert answer_hop["via_source"] == "logs/device.log"
+    assert citations_for_answer(results, "4.3.2") == [
+        "logs/device.log",
+        "releases/fixes.csv",
+    ]
+
+
+def test_direct_answer_prefers_single_minimal_citation():
+    results = [
+        {
+            "source": "specs/current.txt",
+            "chunk_id": 0,
+            "text": "Maximum junction temperature is 94 C",
+            "retrieval_kind": "direct",
+            "via_identifier": None,
+            "via_source": None,
+        },
+        {
+            "source": "notes/copied.txt",
+            "chunk_id": 0,
+            "text": "For reference: 94 C",
+            "retrieval_kind": "hop",
+            "via_identifier": "tq-40",
+            "via_source": "specs/current.txt",
+        },
+    ]
+    assert citations_for_answer(results, "94") == ["specs/current.txt"]
 
 
 def _fake_server(sock_path: Path, response: dict):
