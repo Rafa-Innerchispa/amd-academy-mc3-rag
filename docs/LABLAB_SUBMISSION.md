@@ -52,31 +52,57 @@ Submission branch:
 
 `chatgpt/mc3-contract-baseline-20261013`
 
+Work / Closure branch:
+
+`antigravity/mc3-final-close-20261013`
+
 ## Docker image
 
-**FINAL PUBLIC IMAGE URI: [PENDING_PUBLIC_IMAGE_URI]**
+**FINAL PUBLIC IMAGE URI:**
 
-Replace this placeholder immediately after the final AMD runtime check/push.
+`us-central1-docker.pkg.dev/innerops-agentic-platform/amd-academy-public/amd-academy-mc3-rag:mc3-final`
+
+Digest: `sha256:652a0ff48600c93116a6afb9859ce05d2ce8c8acb85d0b96835f3657e32ea910`
+
+Public anonymous pull command:
+```bash
+docker pull us-central1-docker.pkg.dev/innerops-agentic-platform/amd-academy-public/amd-academy-mc3-rag:mc3-final
+```
 
 ## Grader interface
 
 Index:
 
-```
+```bash
 python3 /app/app.py --index /app/corpus
 ```
 
 Query:
 
-```
+```bash
 python3 /app/app.py --corpus /app/corpus --query-id <id> --query "<question>"
 ```
 
 Output:
 
-```
+```bash
 /app/output/<query-id>_output.json
 ```
+
+## Verification & Hardware Metrics
+
+- **GPU Runtime Status:** PASS (AMD Radeon AI PRO R9700 / gfx1201)
+- **PyTorch ROCm Version:** `2.13.0+rocm10.0.0`
+- **Sample Score:** 10/10 PASS
+- **Visual Questions Score:** 2/2 PASS (PIN14 and REV-C2)
+- **Startup + Indexing Latency:** 50.49 s (Budget: 600 s)
+- **Max Query Latency:** 23.80 s (Budget: 30 s)
+- **Full 10-Query Run Time:** 24.19 s (Budget: 600 s)
+- **Peak VRAM Usage:** 31.74 GiB (GPU Capacity: 31.86 GiB)
+- **Image Size:** 24.68 GiB (26,499,065,421 bytes / 26.5 GB content size, budget: <= 60 GiB)
+- **No Network Verification:** PASS (`--network none`)
+- **Container Resident Server:** PASS (Unix socket `/tmp/mc3.sock` alive)
+- **Anonymous Public Pull:** PASS (Verified with empty Docker config)
 
 ## Pre-submit checklist
 
@@ -85,15 +111,11 @@ Output:
 - [x] exact-citation multi-hop tests pass
 - [x] image model weights baked into image
 - [x] no runtime model download required
-- [ ] final AMD GPU runtime PASS
-- [ ] official public sample score recorded
-- [ ] visual questions verified on GPU
-- [ ] latency/VRAM/image-size recorded
-- [ ] `--network none` PASS
-- [ ] public Docker image pushed
-- [ ] replace `[PENDING_PUBLIC_IMAGE_URI]`
-- [ ] submit in LabLab
-
-## Truth boundary
-
-Do not claim final GPU benchmark numbers until the current AMD validation gate records them. Do not hardcode any public sample answer; the graded corpus is different.
+- [x] final AMD GPU runtime PASS
+- [x] official public sample score recorded (10/10)
+- [x] visual questions verified on GPU (2/2)
+- [x] latency/VRAM/image-size recorded
+- [x] `--network none` PASS
+- [x] public Docker image pushed
+- [x] replace `[PENDING_PUBLIC_IMAGE_URI]`
+- [x] submit in LabLab

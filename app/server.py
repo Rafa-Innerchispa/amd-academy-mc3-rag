@@ -93,17 +93,26 @@ def load_index() -> dict:
 
 
 def answer_query(question: str) -> dict:
-    results = rank(INDEX.get("documents", []), question, limit=10)
+    results = rank(INDEX.get("documents", []), question, limit=8)
     if not results:
         return {"answer": "", "citations": [], "confidence": 0.0}
 
-    raw = MODEL.answer(question, results)
+    fb_answer = fallback_answer_from_results(question, results)
+    fb_citations = citations_for_answer(results, fb_answer)
+    if fb_answer and fb_citations:
+        return {
+            "answer": fb_answer,
+            "citations": fb_citations,
+            "confidence": min(0.98, 0.85 + 0.04 * len(fb_citations)),
+        }
+
+    raw = MODEL.answer(question, results[:4])
     answer = canonicalize_answer(question, str(raw.get("answer") or ""))
     citations = citations_for_answer(results, answer)
 
     if not answer or not citations:
-        answer = fallback_answer_from_results(question, results)
-        citations = citations_for_answer(results, answer)
+        answer = fb_answer
+        citations = fb_citations
 
     if not answer or not citations:
         return {"answer": "", "citations": [], "confidence": 0.0}
@@ -171,9 +180,12 @@ def serve() -> None:
                         "message": str(exc),
                         "trace": traceback.format_exc(limit=2),
                     }
-                conn.sendall(
-                    (json.dumps(response, ensure_ascii=False) + "\n").encode("utf-8")
-                )
+                try:
+                    conn.sendall(
+                        (json.dumps(response, ensure_ascii=False) + "\n").encode("utf-8")
+                    )
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    pass
 
 
 if __name__ == "__main__":

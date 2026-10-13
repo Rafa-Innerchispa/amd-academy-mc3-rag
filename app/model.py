@@ -43,35 +43,65 @@ class ResidentVLM:
         from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
         self.torch = torch
+        self.torch.set_num_threads(8)
         self.model_id = os.getenv("MODEL_ID", DEFAULT_MODEL_ID)
         self.model_dir = Path(os.getenv("MODEL_DIR", "/models/Qwen2.5-VL-3B-Instruct"))
         source = str(self.model_dir if self.model_dir.is_dir() else self.model_id)
         local = self.model_dir.is_dir()
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
 
         self.processor = AutoProcessor.from_pretrained(source, local_files_only=local)
-        self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            source,
-            torch_dtype=dtype,
-            local_files_only=local,
-            attn_implementation="sdpa",
-        ).to(self.device).eval()
+        if torch.cuda.is_available():
+            self.device = "cuda"
+            dtype = torch.bfloat16
+            try:
+                free_mem, _ = torch.cuda.mem_get_info(0)
+                gpu_budget = max(256, int(free_mem * 0.70 / (1024 * 1024)))
+                max_memory = {0: f"{gpu_budget}MiB", "cpu": "24GiB"}
+            except Exception:
+                free_mem = 0
+                max_memory = None
 
-    def _generate(self, messages: list[dict], max_new_tokens: int = 256) -> str:
+            if max_memory is not None and free_mem < (7 * 1024**3):
+                self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                    source,
+                    torch_dtype=dtype,
+                    device_map="auto",
+                    max_memory=max_memory,
+                    local_files_only=local,
+                    attn_implementation="sdpa",
+                ).eval()
+            else:
+                self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                    source,
+                    torch_dtype=dtype,
+                    local_files_only=local,
+                    attn_implementation="sdpa",
+                ).to("cuda").eval()
+        else:
+            self.device = "cpu"
+            dtype = torch.float32
+            self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                source,
+                torch_dtype=dtype,
+                local_files_only=local,
+                attn_implementation="sdpa",
+            ).to("cpu").eval()
+
+    def _generate(self, messages: list[dict], max_new_tokens: int = 128) -> str:
         from qwen_vl_utils import process_vision_info
 
         prompt = self.processor.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
         image_inputs, video_inputs = process_vision_info(messages)
+        device = getattr(self.model, "device", self.device)
         inputs = self.processor(
             text=[prompt],
             images=image_inputs,
             videos=video_inputs,
             padding=True,
             return_tensors="pt",
-        ).to(self.device)
+        ).to(device)
         with self.torch.inference_mode():
             output = self.model.generate(
                 **inputs,
@@ -108,11 +138,11 @@ class ResidentVLM:
                 ],
             },
         ]
-        return self._generate(messages, max_new_tokens=384)
+        return self._generate(messages, max_new_tokens=128)
 
     def answer(self, question: str, contexts: list[dict]) -> dict[str, Any]:
         packed = []
-        for item in contexts[:12]:
+        for item in contexts[:4]:
             packed.append(
                 f"SOURCE: {item['source']}\n"
                 f"CHUNK: {item['chunk_id']}\n"
@@ -135,7 +165,7 @@ class ResidentVLM:
             {"role": "system", "content": [{"type": "text", "text": system}]},
             {"role": "user", "content": [{"type": "text", "text": user}]},
         ]
-        payload = _extract_json(self._generate(messages, max_new_tokens=220))
+        payload = _extract_json(self._generate(messages, max_new_tokens=64))
         answer = str(payload.get("answer") or "").strip()
         citations = payload.get("citations")
         if not isinstance(citations, list):
