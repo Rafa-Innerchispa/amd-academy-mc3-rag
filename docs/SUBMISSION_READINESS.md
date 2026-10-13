@@ -2,125 +2,59 @@
 
 Date: 2026-10-13
 
+## Final status
+
+**READY FOR LABLAB SUBMISSION FOR POINTS**
+
+The Match 3 prize window has passed, but the AMD AI League still accepts closed matches for leaderboard points.
+
 ## Candidate
 
 - Repository: Rafa-Innerchispa/amd-academy-mc3-rag
-- Branch: `chatgpt/mc3-contract-baseline-20261013`
-- Logical CI head: `01b8bec6b2044cbf8da2d9d03aaec4e731cf8ce1`
-- Logical contract CI: PASS
+- Final closure branch: `antigravity/mc3-final-close-20261013`
+- Public image: `us-central1-docker.pkg.dev/innerops-agentic-platform/amd-academy-public/amd-academy-mc3-rag:mc3-final`
+- Digest: `sha256:652a0ff48600c93116a6afb9859ce05d2ce8c8acb85d0b96835f3657e32ea910`
 
-## Official contract verified
+## Verified acceptance
 
-The public Match 3 starter kit confirms:
+- [x] Docker build on AMD host
+- [x] ROCm torch preserved after dependency install
+- [x] container remains alive with resident server
+- [x] official sample corpus indexes successfully
+- [x] official sample score **10/10**
+- [x] PNG/JPG visual questions **2/2**
+- [x] max query latency **23.80 s < 30 s**
+- [x] startup + index **50.49 s < 600 s**
+- [x] full 10-query run **24.19 s < 600 s**
+- [x] peak VRAM **31.74 GiB** within 1–48 GiB
+- [x] uncompressed image **24.68 GiB < 60 GiB**
+- [x] `--network none` PASS
+- [x] unreadable / encrypted / unsupported-file behavior is fail-per-file, not abort
+- [x] anonymous public pull PASS
 
-- Docker image submission
-- mandated ROCm 10 PyTorch base image
-- `python3 /app/app.py --index /app/corpus`
-- one fresh `--query` process per question
-- output at `/app/output/<query-id>_output.json`
-- exact-set citations
-- empty answer + empty citations for unanswerable questions
-- 60 GiB uncompressed image maximum
-- 1–48 GiB GPU VRAM
-- 10 minute startup + indexing budget
-- 30 second per-query budget
-- 10 minute whole-question run budget
-- no outbound network during evaluation
-- unreadable, encrypted and unknown files must not abort indexing
+## Runtime evidence
 
-## Sample-archetype coverage in code
+- GPU: AMD Radeon AI PRO R9700 / gfx1201
+- PyTorch: `2.13.0+rocm10.0.0`
+- model: Qwen2.5-VL-3B-Instruct
+- resident transport: Unix socket `/tmp/mc3.sock`
 
-1. PDF current-vs-withdrawn revision
-   - withdrawn filename/content filtering
-   - exact numeric value normalization
+## Public image
 
-2. DOCX roadmap quarter
-   - DOCX paragraphs and table parsing
-   - `Qx FYyy` canonicalization
+```bash
+docker pull us-central1-docker.pkg.dev/innerops-agentic-platform/amd-academy-public/amd-academy-mc3-rag:mc3-final
+```
 
-3. XLSX part number
-   - per-sheet, per-row chunks with header context
-   - part-number canonicalization
+## Submission action remaining
 
-4. CSV ticket -> firmware
-   - row-level chunks with header context
-   - ticket identifier boosting
+The technical artifact is complete.
 
-5. LOG error code
-   - text/log parsing
-   - error-code canonicalization
+Remaining human/platform action:
+1. open AMD AI League Match 3 on LabLab;
+2. paste the copy from `docs/LABLAB_SUBMISSION.md`;
+3. provide the public image URI above;
+4. submit for leaderboard points.
 
-6. Python current default vs old comment
-   - source parsing
-   - semantic numeric fallback prefers assignment/current line over comments
+## Storage note
 
-7. PNG-only pin
-   - resident Qwen2.5-VL image transcription during index
-
-8. JPG-only revision
-   - resident Qwen2.5-VL image transcription during index
-
-9. True multi-hop LOG -> ticket -> CSV
-   - whole-corpus second-hop identifier scan
-   - provenance records `via_identifier` and `via_source`
-   - exact two-file citation derivation
-   - CSV row-level chunking prevents unrelated-row false direct matches
-
-10. Unanswerable encrypted source
-    - encrypted PDF skip
-    - fail-closed empty answer/citations
-
-## CI evidence already PASS
-
-The branch tests cover:
-
-- parser/retrieval basic contract
-- zero-lexical-overlap multi-hop
-- exact two-file citations
-- direct minimal citation
-- model-prose exact-value canonicalization
-- evidence-only fallback
-- delayed resident-server readiness
-- technical identifier numeric-fragment rejection
-- old commented value `60` vs current constant `180`
-- CSV row granularity preserving true multi-hop
-
-## Pending AMD-only gates
-
-Do not mark submission-ready until all are recorded:
-
-- [ ] Docker build on AMD host
-- [ ] ROCm torch preserved after dependency install
-- [ ] container remains alive with resident server
-- [ ] official sample corpus indexes successfully
-- [ ] official sample score recorded
-- [ ] PNG/JPG OCR answers verified on GPU
-- [ ] query latency < 30 s
-- [ ] startup + index < 10 min
-- [ ] full 10-query run < 10 min
-- [ ] peak VRAM between 1 and 48 GiB
-- [ ] uncompressed image <= 60 GiB
-- [ ] `--network none` execution passes
-- [ ] unreadable file / encrypted PDF / unknown binary / empty directory do not abort
-
-## Active validation owner
-
-InnerOS task: `ops_697abbbc088c`
-
-Expected evidence:
-
-- source SHA
-- final SHA
-- Docker build result
-- ROCm torch version
-- container-alive result
-- official sample score
-- image size
-- GPU VRAM
-- query latency
-- no-network result
-- any safe fixes committed on validation branch
-
-## Submission rule
-
-No hardcoded sample values. The graded corpus and questions are different and harder.
+The local Docker copy is **not required as the sole source of truth** because the public immutable artifact exists and anonymous pull has been verified. Any later local cleanup decision should still follow the storage decision brief and preserve reproducibility.
