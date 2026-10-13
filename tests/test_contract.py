@@ -13,7 +13,12 @@ APP = ROOT / "app" / "app.py"
 sys.path.insert(0, str(ROOT / "app"))
 
 from parsers import build_index
-from retrieval import citations_for_answer, rank
+from retrieval import (
+    canonicalize_answer,
+    citations_for_answer,
+    fallback_answer_from_results,
+    rank,
+)
 
 
 def test_parsers_and_retrieval(tmp_path):
@@ -86,6 +91,40 @@ def test_direct_answer_prefers_single_minimal_citation():
         },
     ]
     assert citations_for_answer(results, "94") == ["specs/current.txt"]
+
+
+def test_model_prose_is_canonicalized_for_exact_value_scoring():
+    assert canonicalize_answer(
+        "Which firmware version fixed the error?",
+        "The firmware version is 4.3.2.",
+    ) == "4.3.2"
+    assert canonicalize_answer(
+        "Which roadmap quarter and fiscal year?",
+        "It is planned for Q3 FY27.",
+    ) == "Q3 FY27"
+    assert canonicalize_answer(
+        "What is the board revision?",
+        "The silkscreen says REV-C2.",
+    ) == "REV-C2"
+
+
+def test_conservative_fallback_extracts_supported_value():
+    results = [
+        {
+            "source": "specs/tq40.txt",
+            "chunk_id": 0,
+            "text": "TQ-40 maximum junction temperature is 94 C",
+            "retrieval_kind": "direct",
+            "via_identifier": None,
+            "via_source": None,
+        }
+    ]
+    answer = fallback_answer_from_results(
+        "What is the maximum junction temperature of TQ-40?",
+        results,
+    )
+    assert answer == "94"
+    assert citations_for_answer(results, answer) == ["specs/tq40.txt"]
 
 
 def _fake_server(sock_path: Path, response: dict):
