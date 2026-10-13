@@ -204,3 +204,38 @@ def test_query_failure_still_writes_valid_refusal(tmp_path):
         "citations": [],
         "confidence": 0.0,
     }
+
+
+
+def test_client_waits_for_delayed_server(tmp_path):
+    sock_path = tmp_path / "delayed.sock"
+    output = tmp_path / "output"
+
+    def delayed_server():
+        import time
+        time.sleep(0.25)
+        _fake_server(sock_path, {
+            "answer": "4.3.2",
+            "citations": ["fixes.csv"],
+            "confidence": 0.9,
+        })
+
+    thread = threading.Thread(target=delayed_server, daemon=True)
+    thread.start()
+
+    env = os.environ.copy()
+    env["MC3_SOCKET"] = str(sock_path)
+    env["MC3_OUTPUT_DIR"] = str(output)
+
+    subprocess.run([
+        sys.executable, str(APP),
+        "--query-id", "delayed",
+        "--query", "Which firmware version fixed the issue?",
+    ], check=True, env=env)
+    thread.join(timeout=2)
+
+    payload = json.loads(
+        (output / "delayed_output.json").read_text(encoding="utf-8")
+    )
+    assert payload["answer"] == "4.3.2"
+    assert payload["citations"] == ["fixes.csv"]
