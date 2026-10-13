@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import json
 from pathlib import Path
 from typing import Iterable
 
@@ -76,7 +75,6 @@ def parse_file(path: Path) -> str:
     except (OSError, PermissionError, ValueError, RuntimeError):
         return ""
     except Exception:
-        # A single malformed or encrypted document must never abort indexing.
         return ""
     return ""
 
@@ -102,6 +100,45 @@ def chunk_text(text: str, max_chars: int = 1800, overlap: int = 180) -> list[str
     return chunks
 
 
+def _csv_row_chunks(text: str) -> list[str]:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return []
+    header = lines[0]
+    if len(lines) == 1:
+        return [header]
+    return [f"{header}\n{row}" for row in lines[1:]]
+
+
+def _xlsx_row_chunks(text: str) -> list[str]:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    chunks: list[str] = []
+    sheet = ""
+    header = ""
+    for line in lines:
+        if line.startswith("[sheet:"):
+            sheet = line
+            header = ""
+            continue
+        if not header:
+            header = line
+            continue
+        prefix = "\n".join(part for part in (sheet, header) if part)
+        chunks.append(f"{prefix}\n{line}" if prefix else line)
+    if not chunks and lines:
+        return lines
+    return chunks
+
+
+def document_chunks(path: Path, text: str) -> list[str]:
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        return _csv_row_chunks(text)
+    if suffix in {".xlsx", ".xlsm"}:
+        return _xlsx_row_chunks(text)
+    return chunk_text(text)
+
+
 def build_index(corpus: str) -> dict:
     root = Path(corpus).resolve()
     docs: list[dict] = []
@@ -113,6 +150,6 @@ def build_index(corpus: str) -> dict:
             rel = path.relative_to(root).as_posix()
         except ValueError:
             continue
-        for idx, chunk in enumerate(chunk_text(text)):
+        for idx, chunk in enumerate(document_chunks(path, text)):
             docs.append({"source": rel, "chunk_id": idx, "text": chunk})
     return {"corpus": str(root), "documents": docs}
