@@ -9,7 +9,12 @@ from pathlib import Path
 
 from model import ResidentVLM
 from parsers import build_index, chunk_text
-from retrieval import citations_for_answer, rank
+from retrieval import (
+    canonicalize_answer,
+    citations_for_answer,
+    fallback_answer_from_results,
+    rank,
+)
 
 SOCKET_PATH = os.getenv("MC3_SOCKET", "/tmp/mc3.sock")
 INDEX_PATH = Path(os.getenv("MC3_INDEX_PATH", "/tmp/mc3_index.json"))
@@ -32,8 +37,6 @@ def _is_obsolete(path: Path) -> bool:
 
 
 def _text_marks_obsolete(text: str) -> bool:
-    # Status declarations normally live near the top. Limiting the scan avoids
-    # treating a current manual that merely mentions a deprecated API as stale.
     return bool(STATUS_RE.search((text or "")[:1200]))
 
 
@@ -64,8 +67,6 @@ def build_full_index(corpus_path: str) -> dict:
     corpus = Path(corpus_path).resolve()
     index = build_index(str(corpus))
 
-    # Filter both stale filenames and explicit status declarations inside
-    # documents. The latter matters when revisions have neutral filenames.
     stale_sources = {
         item["source"]
         for item in index.get("documents", [])
@@ -97,19 +98,20 @@ def answer_query(question: str) -> dict:
         return {"answer": "", "citations": [], "confidence": 0.0}
 
     raw = MODEL.answer(question, results)
-    answer = str(raw.get("answer") or "").strip()
-
-    # Citation scoring in MC3 is exact-set scoring. Do not trust the model to
-    # decide the evidence set. Derive it from retrieval provenance and require
-    # the final value to be visibly supported in the selected corpus evidence.
+    answer = canonicalize_answer(question, str(raw.get("answer") or ""))
     citations = citations_for_answer(results, answer)
+
+    if not answer or not citations:
+        answer = fallback_answer_from_results(question, results)
+        citations = citations_for_answer(results, answer)
+
     if not answer or not citations:
         return {"answer": "", "citations": [], "confidence": 0.0}
 
     return {
         "answer": answer,
         "citations": citations,
-        "confidence": min(0.98, 0.78 + 0.04 * len(citations)),
+        "confidence": min(0.98, 0.80 + 0.04 * len(citations)),
     }
 
 
