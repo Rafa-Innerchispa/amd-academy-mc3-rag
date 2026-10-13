@@ -10,6 +10,14 @@ IDENT_RE = re.compile(
     r"[A-Z]+[0-9]{3,}|[A-Z]{2,}-[0-9]{2,})\b"
 )
 
+VERSION_RE = re.compile(r"\b\d+\.\d+(?:\.\d+){0,2}\b")
+QUARTER_RE = re.compile(r"\bQ[1-4]\s*FY\s*\d{2,4}\b", re.I)
+PART_RE = re.compile(r"\b[A-Z]{2,}[A-Z0-9]*(?:-[A-Z0-9]+){2,}\b")
+ERROR_RE = re.compile(r"\bE\d{3,6}\b", re.I)
+REVISION_RE = re.compile(r"\bREV(?:ISION)?[-_ ]?[A-Z0-9][A-Z0-9._-]*\b", re.I)
+PIN_RE = re.compile(r"\b[A-Z]{1,3}\d{1,3}\b")
+NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])[-+]?\d+(?:\.\d+)?(?![A-Za-z0-9])")
+
 
 def tokenize(text: str) -> list[str]:
     return [m.group(0).lower() for m in TOKEN_RE.finditer(text)]
@@ -36,13 +44,6 @@ def _lexical_score(index: list[dict], doc: dict, q_counts: Counter) -> float:
 
 
 def rank(index: list[dict], query: str, limit: int = 8) -> list[dict]:
-    """Return direct lexical hits plus deterministic identifier-linked hops.
-
-    A critical property of the second pass is that it scans the *entire* index,
-    not only documents that matched the original natural-language query. This
-    lets a log expose E7731 and a CSV containing only E7731|4.3.2 enter the
-    context even when the CSV has zero lexical overlap with the user's words.
-    """
     if not index:
         return []
 
@@ -59,8 +60,6 @@ def rank(index: list[dict], query: str, limit: int = 8) -> list[dict]:
 
     scored.sort(key=lambda item: item[0], reverse=True)
 
-    # Preserve source diversity so one long file does not consume the complete
-    # retrieval budget with adjacent chunks.
     direct: list[dict] = []
     per_source: Counter = Counter()
     for score, doc in scored:
@@ -83,8 +82,6 @@ def rank(index: list[dict], query: str, limit: int = 8) -> list[dict]:
     if not direct:
         return []
 
-    # Build the bridge from rare identifiers found in the strongest direct
-    # evidence. Parent ordering matters: first source is the best lexical hit.
     bridge_parent: dict[str, str] = {}
     for doc in direct[:4]:
         for ident in identifiers(doc["text"]):
@@ -93,8 +90,6 @@ def rank(index: list[dict], query: str, limit: int = 8) -> list[dict]:
     seen = {(doc["source"], doc["chunk_id"]) for doc in direct}
     hops: list[tuple[float, dict]] = []
 
-    # IMPORTANT: scan every indexed document. A second-hop document may have
-    # zero lexical overlap with the original question.
     for doc in index:
         key = (doc["source"], doc["chunk_id"])
         if key in seen:
@@ -103,8 +98,6 @@ def rank(index: list[dict], query: str, limit: int = 8) -> list[dict]:
         if not shared:
             continue
 
-        # Prefer the identifier whose parent appears earliest in direct hits,
-        # then use lexical score only as a tie-breaker.
         best_ident = min(
             shared,
             key=lambda ident: next(
@@ -149,12 +142,6 @@ def _normalize_value(value: str) -> str:
 
 
 def citations_for_answer(results: list[dict], answer: str) -> list[str]:
-    """Derive the minimum evidence set for a verbatim-supported answer.
-
-    Direct answer evidence needs one file. If the answer lives in a deterministic
-    second-hop result, include exactly the bridge source plus the answer source.
-    This is intentionally stricter than trusting an LLM-generated citation list.
-    """
     needle = _normalize_value(answer.strip())
     if not needle:
         return []
@@ -166,7 +153,6 @@ def citations_for_answer(results: list[dict], answer: str) -> list[str]:
     if not candidates:
         return []
 
-    # Prefer a direct source whenever it alone contains the answer.
     direct = next(
         (item for item in candidates if item.get("retrieval_kind") == "direct"),
         None,
@@ -182,6 +168,74 @@ def citations_for_answer(results: list[dict], answer: str) -> list[str]:
     return [source] if source else []
 
 
+def _question_pattern(question: str) -> re.Pattern[str] | None:
+    q = question.lower()
+    if any(term in q for term in ("quarter", "fiscal", "roadmap")):
+        return QUARTER_RE
+    if "part number" in q or "part-number" in q or "sku" in q:
+        return PART_RE
+    if any(term in q for term in ("firmware", "version", "release")):
+        return VERSION_RE
+    if "error code" in q or "failure code" in q:
+        return ERROR_RE
+    if "revision" in q or "board rev" in q:
+        return REVISION_RE
+    if "pin" in q:
+        return PIN_RE
+    if any(
+        term in q
+        for term in (
+            "maximum",
+            "minimum",
+            "temperature",
+            "voltage",
+            "current",
+            "default",
+            "constant",
+            "timeout",
+            "limit",
+            "speed",
+        )
+    ):
+        return NUMBER_RE
+    return None
+
+
+def canonicalize_answer(question: str, raw_answer: str) -> str:
+    answer = (raw_answer or "").strip().strip(chr(96)).strip()
+    if not answer:
+        return ""
+    pattern = _question_pattern(question)
+    if pattern is None:
+        return answer
+
+    match = pattern.search(answer)
+    if not match:
+        return answer
+
+    value = match.group(0).strip()
+    if pattern is QUARTER_RE:
+        value = re.sub(r"\s+", " ", value.upper())
+    elif pattern in (ERROR_RE, REVISION_RE, PIN_RE, PART_RE):
+        value = value.upper().replace("_", "-")
+    return value
+
+
+def fallback_answer_from_results(question: str, results: list[dict]) -> str:
+    pattern = _question_pattern(question)
+    if pattern is None:
+        return ""
+
+    for item in results:
+        text = str(item.get("text") or "")
+        match = pattern.search(text)
+        if not match:
+            continue
+        value = canonicalize_answer(question, match.group(0))
+        if value and citations_for_answer(results, value):
+            return value
+    return ""
+
+
 def minimal_citations(results: list[dict], answer: str) -> list[str]:
-    # Backwards-compatible alias used by earlier tests/callers.
     return citations_for_answer(results, answer)
