@@ -221,10 +221,65 @@ def canonicalize_answer(question: str, raw_answer: str) -> str:
     return value
 
 
+def _query_keywords(question: str) -> set[str]:
+    stop = {
+        "what", "which", "where", "when", "does", "with", "from", "that",
+        "this", "into", "the", "and", "for", "of", "in", "on", "is", "a",
+        "an", "to", "at", "by",
+    }
+    normalized = re.sub(r"[_-]+", " ", question.lower())
+    return {
+        word
+        for word in re.findall(r"[a-z]{3,}", normalized)
+        if word not in stop
+    }
+
+
+def _numeric_fallback(question: str, results: list[dict]) -> str:
+    keywords = _query_keywords(question)
+    best: tuple[float, int, int, str] | None = None
+
+    for item_idx, item in enumerate(results):
+        text = str(item.get("text") or "")
+        for line_idx, line in enumerate(text.splitlines()):
+            matches = list(NUMBER_RE.finditer(line))
+            if not matches:
+                continue
+
+            normalized = re.sub(r"[_-]+", " ", line.lower())
+            score = float(sum(1 for word in keywords if word in normalized))
+            stripped = line.lstrip()
+            if "=" in line and not stripped.startswith("#"):
+                score += 1.5
+            if stripped.startswith(("#", "//", "/*", "*")):
+                score -= 2.0
+
+            for match in matches:
+                value = match.group(0).strip()
+                try:
+                    number = float(value)
+                    if 1900 <= number <= 2100 and "year" not in question.lower():
+                        score -= 1.0
+                except ValueError:
+                    pass
+
+                candidate = (score, -item_idx, -line_idx, value)
+                if best is None or candidate > best:
+                    best = candidate
+
+    if best is None:
+        return ""
+    value = canonicalize_answer(question, best[3])
+    return value if citations_for_answer(results, value) else ""
+
+
 def fallback_answer_from_results(question: str, results: list[dict]) -> str:
     pattern = _question_pattern(question)
     if pattern is None:
         return ""
+
+    if pattern is NUMBER_RE:
+        return _numeric_fallback(question, results)
 
     for item in results:
         text = str(item.get("text") or "")
