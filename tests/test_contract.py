@@ -239,3 +239,70 @@ def test_client_waits_for_delayed_server(tmp_path):
     )
     assert payload["answer"] == "4.3.2"
     assert payload["citations"] == ["fixes.csv"]
+
+
+
+def test_numeric_fallback_prefers_current_constant_over_old_comment():
+    results = [
+        {
+            "source": "engineering/ingest_service.py",
+            "chunk_id": 0,
+            "text": (
+                "# Seconds a batch may sit in the staging queue before it is abandoned.\n"
+                "# Raised from 60 after the 2026-08 backlog incident.\n"
+                "DEFAULT_BATCH_TIMEOUT_S = 180\n"
+                "MAX_INFLIGHT_BATCHES = 12"
+            ),
+            "retrieval_kind": "direct",
+            "via_identifier": None,
+            "via_source": None,
+        }
+    ]
+    answer = fallback_answer_from_results(
+        "What is the default batch timeout, in seconds, in the ingest service?",
+        results,
+    )
+    assert answer == "180"
+    assert citations_for_answer(results, answer) == [
+        "engineering/ingest_service.py"
+    ]
+
+
+def test_csv_row_chunking_preserves_true_multihop(tmp_path):
+    corpus = tmp_path / "corpus"
+    logs = corpus / "logs"
+    support = corpus / "support"
+    logs.mkdir(parents=True)
+    support.mkdir(parents=True)
+
+    (logs / "prod.log").write_text(
+        "ERROR E7731: thermal throttle engaged\n"
+        "incident logged against ORR-1847\n",
+        encoding="utf-8",
+    )
+    (support / "bug_database.csv").write_text(
+        "ticket,component,summary,fixed_in\n"
+        "ORR-1847,power,Die sensor high,4.3.2\n"
+        "ORR-1755,thermal,Fan curve aggressive,4.2.0\n",
+        encoding="utf-8",
+    )
+
+    index = build_index(str(corpus))
+    query = (
+        "The production log shows a thermal throttle incident. "
+        "Which firmware release fixed the underlying defect?"
+    )
+    results = rank(index["documents"], query, limit=8)
+
+    target = next(
+        item
+        for item in results
+        if item["source"] == "support/bug_database.csv"
+        and "ORR-1847" in item["text"]
+    )
+    assert target["retrieval_kind"] == "hop"
+    assert target["via_source"] == "logs/prod.log"
+    assert citations_for_answer(results, "4.3.2") == [
+        "logs/prod.log",
+        "support/bug_database.csv",
+    ]
