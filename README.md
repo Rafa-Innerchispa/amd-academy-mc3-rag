@@ -69,3 +69,12 @@ See `docs/SUBMISSION_READINESS.md`.
 ## Lineage
 
 This repository reuses proven design patterns from MC2 ChispaVision OCR and InnerOS/HyperLoom evidence work, while keeping MC3 implementation and submission scope separate.
+
+
+## Project Family & AMD AI League Context
+
+This repository is part of the **InnerOS on AMD** challenge family for the AMD AI League 2026:
+- **Canonical Umbrella Repository:** [https://github.com/Rafa-Innerchispa/inneros-amd-ai-league-2026](https://github.com/Rafa-Innerchispa/inneros-amd-ai-league-2026)
+- **Match 2 (Vision OCR):** [https://github.com/Rafa-Innerchispa/infralens-ocr-amd](https://github.com/Rafa-Innerchispa/infralens-ocr-amd) (`chispavision-mc2:final-512`)
+- **Match 4 (Web Retrieval):** [https://github.com/Rafa-Innerchispa/amd-academy-mc4-web-retrieval](https://github.com/Rafa-Innerchispa/amd-academy-mc4-web-retrieval)
+- **Verified MC3 Docker Artifact:** `us-central1-docker.pkg.dev/innerops-agentic-platform/amd-academy-public/amd-academy-mc3-rag:mc3-final` (`sha256:652a0ff48600c93116a6afb9859ce05d2ce8c8acb85d0b96835f3657e32ea910`)
